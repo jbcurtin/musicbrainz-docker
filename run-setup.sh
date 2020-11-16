@@ -13,6 +13,12 @@ network_name='musicbrainz'
 if ! docker network inspect $network_name >/dev/null; then
     docker network create $network_name
 fi
+if [ ! -d "$FTP_DATA" ]; then
+    mkdir -p $FTP_DATA
+    cd $FTP_DATA
+    wget -r -np http://ftp.musicbrainz.org/pub/musicbrainz/data/fullexport/
+    cd -
+fi
 if ! docker inspect $db_hostname >/dev/null 2>/dev/null; then
     docker run -d \
         --rm \
@@ -27,8 +33,7 @@ if ! docker inspect $db_hostname >/dev/null 2>/dev/null; then
         postgres:12
 fi
 docker stop $db_hostname >/dev/null
-docker run \
-    -d \
+docker run -d \
    --rm \
    --name $db_hostname \
    --network $network_name \
@@ -38,18 +43,12 @@ docker run \
    -e PGDATA="$DB_DATA_DIR" \
    -e POSTGRES_INITDB_ARGS="-D $DB_DATA_DIR" \
    -v $DB_DATA_DIR_HOST:$DB_DATA_DIR:rw \
-   -v $PWD/configs/pg_hba.conf:$DB_DATA_DIR/pg_hba.conf:ro \
+   -v $PWD/configs/pg_hba.conf:$DB_DATA_DIR/pg_hba.conf:rw \
    postgres:12
 
 db_ipaddress=$(docker inspect $db_hostname|jq -r ".[0].NetworkSettings.Networks.$network_name.IPAddress")
 sed "s/{{DBHOST_IP}}/$db_ipaddress/g" ./configs/DBDefs.pm.tmpl > ./configs/DBDefs.pm
 docker build . -t musicbrainz-server:latest -f Dockerfile
-if [ ! -d "$FTP_DATA" ]; then
-    mkdir -p $FTP_DATA
-    cd $FTP_DATA
-    wget -r -np http://ftp.musicbrainz.org/pub/musicbrainz/data/fullexport/
-    cd -
-fi
 echo 'Connect with:'
 echo "  docker run --rm -it --name musicbrainz-server -v $FTP_DATA:/opt/ftp-data:ro --network $network_name musicbrainz-server:latest /bin/bash"
 echo 'And run the command:'
